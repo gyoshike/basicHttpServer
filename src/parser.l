@@ -1,17 +1,17 @@
 %{
 #include "y.tab.h"
 %}
-%START		ParametroCmd
-%START		ParametroRequest
-request		GET|HEAD|OPTIONS|TRACE
+%START		    ParametroCmd
+%START		    ParametroRequest
+request	        ^[A-Z]+
 paramRequest	[^ \r\n]+
-cmd		^[^: \r\n]+
-paramcmd	[^,\r\n]+
-virgula		,
-doisPontos	:
-espaco		[ ]
-comentario	#[^\n]*\r?\n
-nl        	\r?\n
+cmd		        ^[^: \r\n]+
+paramcmd	    [^,\r\n]+
+virgula         ,
+doisPontos	    :
+espaco		    [ ]
+comentario	    #[^\n]*\r?\n
+nl        	    \r?\n
 %%
 
 {nl}					{
