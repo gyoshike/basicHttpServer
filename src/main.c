@@ -10,15 +10,16 @@
 #include "y.tab.h"
 
 
+
 void processRequest(char* webspace, char* inputPath, char* outputPath, char* logPath);
 char* getRequestFromFile(char* path);
 int checkRequestImplemented(char* request);
-int checkRequestAllowed:(char* request);
+int checkRequestAllowed(char* request);
 int getResource(char* webspace, char* resourcePath);
 
 //Funcoes para manejar erros e gerar paginas html de erro.
-void issueError(int errorCode);
-void createHtmlErrorPage(char* title, char* text);
+void issueError(int errorCode, int outFD, int logFD);
+char* createHtmlErrorPage(int errorCode);
 
 //Funcoes para realizar escritas em todos os casos
 void writeInputRequestToTerm(char* inputReq);
@@ -40,9 +41,14 @@ const char MSG_500[] = "500 Internal Server Error";
 const char MSG_501[] = "501 Not Implemented";
 //String separadora de request no log
 const char LOG_SEPARATOR[] = "\n----------------------------------------\n";
+//Strings da pagina HTML de erro.
+const char HTML_BODY1[] = "<!DOCTYPE html>\n<html>\n\t<head>\n\t\t<title>";
+const char HTML_BODY2[] = "</title>\n\t</head>\n\t<body>\n\t\t<font size=\"10\">";
+const char HTML_BODY3[] = "</font>\n\t</body>\n</html>\n";
 
 int main(int argc, char* argv[]) {
     processRequest(argv[1], argv[2], argv[3], argv[4]);
+    return 0;
 }
 
 //Processa a request
@@ -55,13 +61,24 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
     int outFD, logFD, resourceFD;
     int readSize;
     struct stat statbuf;
-
+    
+    
+    outFD = open(outputPath, O_TRUNC|O_WRONLY|O_CREAT, 0600);
+    logFD = open(logPath, O_APPEND|O_WRONLY|O_CREAT, 0600);
+   
     //Obtem buffer contendo a request do arquivo especificado em inputPath
     char* req = getRequestFromFile(inputPath); //Nao esquecer de dar free apos uso
     if(req == NULL) {
-        //issueError(500);
+        issueError(500, outFD, logFD);
+        close(outFD);
+        close(logFD);
+        free(req);
         return;
     }
+
+
+    writeInputRequestToTerm(req);
+    writeInputRequestToLog(req, logFD);
 
     //Chama o parser sobre o buffer, populando a lista de comandos e parâmetros
     //TODO: pegar erro yyparse e lidar com erro de BAD REQUEST (400)
@@ -74,34 +91,48 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
 
 	//Verifica se a request recebida esta implementada e é permitida
 	if(checkRequestImplemented(request)) {
-	    //issueError(501);
+	    issueError(501, outFD, logFD);
+        close(outFD);
+        close(logFD);
+        free(req);
 	    return;
 	}
 	if(checkRequestAllowed(request)) {
-	    //issueError(405);
+	    issueError(405, outFD, logFD);
+        close(outFD);
+        close(logFD);
+        free(req);
 	    return;
     }
     
     //Implementa requisicoes
     //TODO: garantir que foi possível abrir
-    outFD = open(outputPath, O_TRUNC|O_WRONLY|O_CREAT, 0600);
-    logFD = open(logPath, O_APPEND|O_WRONLY|O_CREAT, 0600);
-    writeInputRequestToTerm(req);
-    writeInputRequestToLog(req, logFD);
     //Implementa GET e HEAD
     if(!strcmp(request, "GET") || !strcmp(request, "HEAD")) {
         //Tenta abrir recurso e verifica erros
         resourceFD = getResource(webspace, resourcePath);
         if(resourceFD == -1) {
-           // issueError(403);
+            issueError(403, outFD, logFD);
+            close(outFD);
+            close(logFD);
+            close(resourceFD);
+            free(req);
             return;
         }
         else if(resourceFD == -2) {
-           // issueError(404);
+            issueError(404, outFD, logFD);
+            close(outFD);
+            close(logFD);
+            close(resourceFD);
+            free(req);
             return;
         }
         else if(resourceFD == -3) {
-           // issueError(500);
+            issueError(500, outFD, logFD);
+            close(outFD);
+            close(logFD);
+            close(resourceFD);
+            free(req);
             return;
         }
         else {
@@ -160,6 +191,70 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
     close(resourceFD);
     free(req);
 
+}
+
+//TODO: arrumar content type
+//TODO: null character aparecendo no começo da pagina html (após os headers)
+void issueError(int errorCode, int outFD, int logFD) {
+    char* page;
+    char buf[1028];
+
+    writeCommonHeadersToOutputAndLog(errorCode, outFD, logFD);
+    page = createHtmlErrorPage(errorCode);          //Nao esquecer de dar free
+    sprintf(buf, "Content-type: HTML\n", 20);
+    write(outFD, buf, strlen(buf));
+    write(logFD, buf, strlen(buf));
+    sprintf(buf, "Content-Length: %d\n", strlen(page)); 
+    write(outFD, buf, strlen(buf));
+    write(logFD, buf, strlen(buf));
+    write(outFD, "\n", 2);
+    write(outFD, page, strlen(page));
+    free(page);
+    return;
+}
+
+//Nao esquecer de dar free no ponteiro retornado!!!!!!
+char* createHtmlErrorPage(int errorCode) {
+    char title[64];
+    char message[64];
+    int pageSize;
+    switch(errorCode) {
+        case 400:
+            strcpy(title, MSG_400);
+            strcpy(message, MSG_400);
+            break;
+        case 403:
+            strcpy(title, MSG_403);
+            strcpy(message, MSG_403);
+            break;
+        case 404:
+            strcpy(title, MSG_404);
+            strcpy(message, MSG_404);
+            break;
+        case 405:
+            strcpy(title, MSG_405);
+            strcpy(message, MSG_405);
+            break;
+        case 500:
+            strcpy(title, MSG_500);
+            strcpy(message, MSG_500);
+            break;
+        case 501:
+            strcpy(title, MSG_501);
+            strcpy(message, MSG_501);
+            break;
+    }
+
+    
+    pageSize = strlen(title) + strlen(message) + strlen(HTML_BODY1) + strlen(HTML_BODY2) + strlen(HTML_BODY3);
+    char* page = (char*)malloc(pageSize);
+    strcpy(page, HTML_BODY1);
+    strcat(page, title);
+    strcat(page, HTML_BODY2);
+    strcat(page, message);
+    strcat(page, HTML_BODY3);
+    return page;
+            
 }
 
 //TODO: Reconstruir request usando a arvore ao invés de utilizar o char
