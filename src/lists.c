@@ -1,32 +1,10 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include "lists.h"
 
 struct command_list * list = NULL;
-
-void returnRequest(char* dest) {
-	strcpy(dest, list->command);
-}
-
-void returnParam(char* dest) {
-	strcpy(dest, list->params->param);
-}
-
-void print_list() {
-	command_list * current = list;
-	while (current != NULL) {
-		
-		printf("%s\n", current->command);
-		
-		while(current->params != NULL){
-			printf("Parâmetro: %s\n", current->params->param);
-			current->params = current->params->next;
-		}
-
-		current = current->next;
-	}
-}
 
 void add_command_list(char *command)
 {
@@ -84,4 +62,49 @@ void add_param_list_begin(char *param)
 	current->params = new_node;
 
 	return;
+}
+
+
+void getRequest(char* dest) {
+	strcpy(dest, list->command);
+}
+
+void getParam(char* dest) {
+	strcpy(dest, list->params->param);
+}
+
+
+//Imprime a request parseada em um arquivo
+void printRequestInListToFile(int fileFD) {
+    char buf[1024];
+
+
+    command_list* current = list;
+    param_list* currentParam = list->params;
+    sprintf(buf, "%s", current->command);
+    write(fileFD, buf, strlen(buf));
+    while(currentParam->param != NULL) {
+        sprintf(buf, " %s", currentParam->param);
+        write(fileFD, buf, strlen(buf));
+        currentParam = currentParam->next;
+    }
+    
+    sprintf(buf, "\r\n");
+    write(fileFD, buf, strlen(buf));
+    current = current->next;
+    while(current != NULL) {
+        sprintf(buf, "%s:", current->command);
+        write(fileFD, buf, strlen(buf));
+        currentParam = current->params;
+        while(currentParam != NULL) {
+            if(currentParam->next == NULL) sprintf(buf, "%s\r\n", current->params->param);
+            else sprintf(buf, "%s,", currentParam->param);
+            write(fileFD, buf, strlen(buf));
+            currentParam = currentParam->next;
+        }
+        current = current->next;
+
+    }
+    write(fileFD, "\r\n", 2);
+    return;        
 }

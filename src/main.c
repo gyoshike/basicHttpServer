@@ -40,11 +40,11 @@ const char MSG_405[] = "405 Method Not Allowed";
 const char MSG_500[] = "500 Internal Server Error";
 const char MSG_501[] = "501 Not Implemented";
 //String separadora de request no log
-const char LOG_SEPARATOR[] = "\n----------------------------------------\n";
+const char LOG_SEPARATOR[] = "\r\n----------------------------------------\r\n\r\n";
 //Strings da pagina HTML de erro.
-const char HTML_BODY1[] = "<!DOCTYPE html>\n<html>\n\t<head>\n\t\t<title>";
-const char HTML_BODY2[] = "</title>\n\t</head>\n\t<body>\n\t\t<font size=\"10\">";
-const char HTML_BODY3[] = "</font>\n\t</body>\n</html>\n";
+const char HTML_BODY1[] = "<!DOCTYPE html>\r\n<html>\r\n\t<head>\r\n\t\t<title>";
+const char HTML_BODY2[] = "</title>\r\n\t</head>\r\n\t<body>\r\n\t\t<font size=\"10\">";
+const char HTML_BODY3[] = "</font>\r\n\t</body>\r\n</html>\r\n";
 
 int main(int argc, char* argv[]) {
     processRequest(argv[1], argv[2], argv[3], argv[4]);
@@ -52,17 +52,16 @@ int main(int argc, char* argv[]) {
 }
 
 //Processa a request
-//TODO: em todos os erros, dar close e free no que for necessário antes de retornar 
 void processRequest(char* webspace, char* inputPath, char* outputPath, char* logPath) {
     char request[16];
-    char resourcePath[1028];
-    char buf[1028];
+    char resourcePath[1024];
+    char buf[1024];
     char contentLength[12];
     int outFD, logFD, resourceFD;
     int readSize;
     struct stat statbuf;
     
-    
+    //Abre fd do log e da saida. 
     outFD = open(outputPath, O_TRUNC|O_WRONLY|O_CREAT, 0600);
     logFD = open(logPath, O_APPEND|O_WRONLY|O_CREAT, 0600);
    
@@ -76,18 +75,18 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
         return;
     }
 
-
-    writeInputRequestToTerm(req);
-    writeInputRequestToLog(req, logFD);
-
     //Chama o parser sobre o buffer, populando a lista de comandos e parâmetros
     //TODO: pegar erro yyparse e lidar com erro de BAD REQUEST (400)
  	yy_scan_string(req);
 	yyparse();
+
+    //Escreve a request parseada no log e na stdout (fd=1)
+	printRequestInListToFile(logFD);
+    printRequestInListToFile(1);
     
 	//Puxa primeiro cmd e primeiro parametro para testar
-	returnRequest(request);
-    returnParam(resourcePath);
+	getRequest(request);
+    getParam(resourcePath);
 
 	//Verifica se a request recebida esta implementada e é permitida
 	if(checkRequestImplemented(request)) {
@@ -106,7 +105,6 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
     }
     
     //Implementa requisicoes
-    //TODO: garantir que foi possível abrir
     //Implementa GET e HEAD
     if(!strcmp(request, "GET") || !strcmp(request, "HEAD")) {
         //Tenta abrir recurso e verifica erros
@@ -142,20 +140,21 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
             sprintf(buf, "Last-Modified: %s", ctime(&statbuf.st_mtime));
             write(outFD, buf, strlen(buf));
             write(logFD, buf, strlen(buf));
-            sprintf(buf, "Content-Length: %lld\n", (long long)statbuf.st_size);
+            sprintf(buf, "Content-Length: %lld\r\n", (long long)statbuf.st_size);
             write(outFD, buf, strlen(buf));
             write(logFD, buf, strlen(buf)); 
             //TODO: Fazer content-type com a syscall system
-            sprintf(buf, "Content-type: ALGO\n", 20);
+            sprintf(buf, "Content-type: ALGO\r\n", 20);
             write(outFD, buf, strlen(buf));
             write(logFD, buf, strlen(buf));
-            //Escreve recurso no arquivo se saída
-            write(outFD, "\n", 2);
-            char byte;
-            while(read(resourceFD, &byte, 1) != 0) {
-                write(outFD, &byte, 1);
+            if(!strcmp(request, "GET")) {
+                //Escreve recurso no arquivo se saída
+                write(outFD, "\r\n", 2);
+                char byte;
+                while(read(resourceFD, &byte, 1) != 0) {
+                    write(outFD, &byte, 1);
+                }
             }
-            write(outFD, "\0", 1);
         }         
 
     }
@@ -166,7 +165,7 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
         for(int i=0; REQUEST_ALLOWED[i] != 0; i++) {
             strcat(buf, REQUEST_ALLOWED[i]);
             if(REQUEST_ALLOWED[i+1] != 0) strcat(buf, ", ");
-            else strcat(buf,"\n");
+            else strcat(buf,"\r\n");
         }
         strcat(buf, "Content-Length: 0");
         write(outFD, buf, strlen(buf));
@@ -174,17 +173,18 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
 
     }
     //Implementa TRACE
-    //TODO: Reconstruir da lista ao invés de usar o char req, pegar content-length baseado na reconstrução e não no char req
     else if(!strcmp(request, "TRACE")) {
         writeCommonHeadersToOutputAndLog(200, outFD, logFD);
         strcpy(buf, "Content-Length: ");
-        sprintf(contentLength, "%u\n", (unsigned)strlen(req));
+        sprintf(contentLength, "%d\r\n", strlen(req));
         strcat(buf, contentLength);
         write(outFD, buf, strlen(buf));
-        write(outFD, "\n", 2);
+        write(outFD, "\r\n", 2);
         write(logFD, buf, strlen(buf));
-        write(outFD, req, strlen(req));
+        printRequestInListToFile(outFD);
     }
+
+    write(logFD, LOG_SEPARATOR, strlen(LOG_SEPARATOR));
 
     close(outFD);
     close(logFD);
@@ -194,20 +194,19 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
 }
 
 //TODO: arrumar content type
-//TODO: null character aparecendo no começo da pagina html (após os headers)
 void issueError(int errorCode, int outFD, int logFD) {
     char* page;
-    char buf[1028];
+    char buf[1024];
 
     writeCommonHeadersToOutputAndLog(errorCode, outFD, logFD);
     page = createHtmlErrorPage(errorCode);          //Nao esquecer de dar free
-    sprintf(buf, "Content-type: HTML\n", 20);
+    sprintf(buf, "Content-type: HTML\r\n", 20);
     write(outFD, buf, strlen(buf));
     write(logFD, buf, strlen(buf));
-    sprintf(buf, "Content-Length: %d\n", strlen(page)); 
+    sprintf(buf, "Content-Length: %d\r\n", strlen(page)); 
     write(outFD, buf, strlen(buf));
     write(logFD, buf, strlen(buf));
-    write(outFD, "\n", 2);
+    write(outFD, "\r\n", 2);
     write(outFD, page, strlen(page));
     free(page);
     return;
@@ -257,25 +256,10 @@ char* createHtmlErrorPage(int errorCode) {
             
 }
 
-//TODO: Reconstruir request usando a arvore ao invés de utilizar o char
-void writeInputRequestToTerm(char *inputReq) {
-    printf("%s\n", inputReq);
-}
-
-//TODO: Talvez ler a entrada ou reconstruir da arvore e escrever ao invés de usar o char?
-//TODO: Verificacao de erros write
-void writeInputRequestToLog(char* inputReq, int logFD) {
-    write(logFD, LOG_SEPARATOR, strlen(LOG_SEPARATOR)); //Escreve separador no log
-    write(logFD, inputReq, strlen(inputReq));
-    write(logFD, "\n", 2);
-}
-
-//TODO: Decidir se realmente uso chamadas POSIC (write, etc) ou ANSI C (fwrite)
-//TODO: Verificao de erros write
 void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD) {
     time_t rawtime;
     struct tm* timeinfo;
-    char buf[1028];
+    char buf[1024];
     int readSize;
 
     //Forma linhas em buf e as escreve nos arquivos
@@ -304,7 +288,7 @@ void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD) {
         strcat(buf, MSG_501);
         break;
     }
-    strcat(buf, "\n");
+    strcat(buf, "\r\n");
     write(outFD, buf, strlen(buf));
     write(logFD, buf, strlen(buf));
 
@@ -317,12 +301,12 @@ void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD) {
  
     strcpy(buf, "Server: ");
     strcat(buf, SERVER_INFO);
-    strcat(buf, "\n");
+    strcat(buf, "\r\n");
     write(outFD, buf, strlen(buf));
     write(logFD, buf, strlen(buf));
 
     //TODO: Pegar tipo de conexao da request e usar a mesma
-    strcpy(buf, "Connection-Type: keep-alive\n");
+    strcpy(buf, "Connection-Type: keep-alive\r\n");
     write(outFD, buf, strlen(buf));
     write(logFD, buf, strlen(buf));
 }
@@ -332,8 +316,8 @@ void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD) {
 //Retorna FD no sucesso, -1 Forbidden, -2 Not found, -3 Internal Server Error
 int getResource(char* webspace, char* resourcePath) {
     int resourceFD;
-    char path[1028];
-    char auxPath[1028];
+    char path[1024];
+    char auxPath[1024];
     int readSize;
     struct stat statbuf;
 

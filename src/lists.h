@@ -9,8 +9,9 @@ typedef struct param_list{
 	struct param_list *next;
 } param_list;
 
-void returnRequest(char* dest);
-void returnParam(char* dest);
+void getRequest(char* dest);
+void getParam(char* dest);
 void add_command_list(char *command);
 void add_param_list_begin(char *param);
 void print_list();
+void printRequestInListToFile(int fileFD);
