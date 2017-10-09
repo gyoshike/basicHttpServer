@@ -1,5 +1,0 @@
-Arrumar separador no caso de erro
-Pegar content-type certo
-Pegar tipo de conexão da request e usar a mesma
-Arrumar 4 conflitos de redução
-Pegar erro yyparse (main.c linha 81) e dar issue em bad request caso acontença

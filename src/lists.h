@@ -13,5 +13,5 @@ void getRequest(char* dest);
 void getParam(char* dest);
 void add_command_list(char *command);
 void add_param_list_begin(char *param);
-void print_list();
 void printRequestInListToFile(int fileFD);
+void cleanLists();

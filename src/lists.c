@@ -4,6 +4,8 @@
 #include <unistd.h>
 #include "lists.h"
 
+//TODO: Novas maneiras de percorrer a lista
+
 struct command_list * list = NULL;
 
 void add_command_list(char *command)
@@ -64,6 +66,22 @@ void add_param_list_begin(char *param)
 	return;
 }
 
+void cleanLists() {
+    command_list *auxCmdList = list;
+    param_list *auxParamList = list->params;
+
+    while(list != NULL) {
+        while(list->params != NULL) {
+            auxParamList = list->params->next;
+            free(list->params);
+            list->params = auxParamList;
+        }
+        auxCmdList = list->next;
+        free(list);
+        list = auxCmdList;
+    }
+    return;
+}
 
 void getRequest(char* dest) {
 	strcpy(dest, list->command);

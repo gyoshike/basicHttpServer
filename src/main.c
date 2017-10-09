@@ -1,3 +1,15 @@
+/* Servidor HTTP Basico
+ * Dener Stassun Christinele
+ * Guilherme Augusto Sakai Yoshike */
+
+/* TODO:
+ * -Escrever content-type correto em TRACE (ASCII TEXT) e nos erros (Pagina HTML)
+ * -Lidar com o caso em que é pego content type do diretorio e nao do recurso
+ * -Obter connection-type da request parseada
+ * -Descobrir como colocar \r\n nas strings de tempo
+ * -Capturar o erro de yyparse() para capturar bad request
+ * -Detectar erros em opens, writes, etc para capturar internal server error */
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
@@ -9,25 +21,25 @@
 #include "lists.h"
 #include "y.tab.h"
 
-
-
+//Processa a request
 void processRequest(char* webspace, char* inputPath, char* outputPath, char* logPath);
-char* getRequestFromFile(char* path);
-int checkRequestImplemented(char* request);
-int checkRequestAllowed(char* request);
-int getResource(char* webspace, char* resourcePath);
-
-//Funcoes para manejar erros e gerar paginas html de erro.
+void cleanupProcessRequest(int outFD, int logFD, int resourceFD, char* req);
+//Geram as saidas no caso de erro
 void issueError(int errorCode, int outFD, int logFD);
 char* createHtmlErrorPage(int errorCode);
-
-//Funcoes para realizar escritas em todos os casos
-void writeInputRequestToTerm(char* inputReq);
-void writeInputRequestToLog(char* inputReq, int logFD);
+//Retorna uma string contendo a request no arquivo especificado em path
+char* getRequestFromFile(char* path);
+//Retorna o FD do recurso em path. Em caso de falha, retorna codigos de erro
+int getResource(char* path);
+//Realiza escritas comuns a todos os casos
 void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD); 
+//Verificam se a request solicitada foi implementada e é permitada
+int checkRequestImplemented(char* request);
+int checkRequestAllowed(char* request);
 
-//Requests implementadas e permitidas
-const char* const REQUEST_IMPLEMENTED[] = {"GET", "HEAD", "TRACE", "OPTIONS", 0};
+//Requests implementadas e permitidas. 
+//OBS: DELETE marcada como implementada apenas para teste do erro Method Not Allowed
+const char* const REQUEST_IMPLEMENTED[] = {"GET", "HEAD", "TRACE", "OPTIONS", "DELETE", 0};
 const char* const REQUEST_ALLOWED[] = {"GET", "HEAD", "TRACE", "OPTIONS", 0};
 //Strings de headers comuns
 const char HTTP_VERSION[] = "HTTP/1.1";
@@ -53,13 +65,15 @@ int main(int argc, char* argv[]) {
 
 //Processa a request
 void processRequest(char* webspace, char* inputPath, char* outputPath, char* logPath) {
-    char request[16];
-    char resourcePath[1024];
-    char buf[1024];
-    char contentLength[12];
-    int outFD, logFD, resourceFD;
-    int readSize;
-    struct stat statbuf;
+    char request[16];               //Nome da request
+    char resourcePath[1024];        //Caminho para o recurso
+    char fullPath[1024];            //Caminho completo para o recurso considerando o webspace
+    char buf[1024];                 //Buffer de uso geral em escritas
+    int outFD = -1;                 //FD do arquivo de saída
+    int logFD = -1;                 //FD do arquivo de log
+    int resourceFD = -1;            //FD do recurso solicitado
+    struct stat statbuf;            //Struct de informacoes de um recurso
+    FILE *shellCmdBin;              //Stream para executar comandos shell
     
     //Abre fd do log e da saida. 
     outFD = open(outputPath, O_TRUNC|O_WRONLY|O_CREAT, 0600);
@@ -69,38 +83,39 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
     char* req = getRequestFromFile(inputPath); //Nao esquecer de dar free apos uso
     if(req == NULL) {
         issueError(500, outFD, logFD);
-        close(outFD);
-        close(logFD);
-        free(req);
+        cleanupProcessRequest(outFD, logFD, -1, req);
         return;
     }
 
     //Chama o parser sobre o buffer, populando a lista de comandos e parâmetros
     //TODO: pegar erro yyparse e lidar com erro de BAD REQUEST (400)
  	yy_scan_string(req);
-	yyparse();
+	if(yyparse()) {
+	    issueError(400, outFD, logFD);
+	    cleanupProcessRequest(outFD, logFD, -1, req);
+	}
 
     //Escreve a request parseada no log e na stdout (fd=1)
 	printRequestInListToFile(logFD);
     printRequestInListToFile(1);
     
-	//Puxa primeiro cmd e primeiro parametro para testar
+	//Puxa request e seu primeiro parametro 
 	getRequest(request);
     getParam(resourcePath);
+
+    //Forma o caminho completo para o recurso
+    strcpy(fullPath, webspace);
+    strcat(fullPath, resourcePath);
 
 	//Verifica se a request recebida esta implementada e é permitida
 	if(checkRequestImplemented(request)) {
 	    issueError(501, outFD, logFD);
-        close(outFD);
-        close(logFD);
-        free(req);
+        cleanupProcessRequest(outFD, logFD, -1, req);
 	    return;
 	}
 	if(checkRequestAllowed(request)) {
 	    issueError(405, outFD, logFD);
-        close(outFD);
-        close(logFD);
-        free(req);
+        cleanupProcessRequest(outFD, logFD, -1, req);
 	    return;
     }
     
@@ -108,29 +123,20 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
     //Implementa GET e HEAD
     if(!strcmp(request, "GET") || !strcmp(request, "HEAD")) {
         //Tenta abrir recurso e verifica erros
-        resourceFD = getResource(webspace, resourcePath);
+        resourceFD = getResource(fullPath);
         if(resourceFD == -1) {
             issueError(403, outFD, logFD);
-            close(outFD);
-            close(logFD);
-            close(resourceFD);
-            free(req);
+            cleanupProcessRequest(outFD, logFD, resourceFD, req);
             return;
         }
         else if(resourceFD == -2) {
             issueError(404, outFD, logFD);
-            close(outFD);
-            close(logFD);
-            close(resourceFD);
-            free(req);
+            cleanupProcessRequest(outFD, logFD, resourceFD, req);
             return;
         }
         else if(resourceFD == -3) {
             issueError(500, outFD, logFD);
-            close(outFD);
-            close(logFD);
-            close(resourceFD);
-            free(req);
+            cleanupProcessRequest(outFD, logFD, resourceFD, req);
             return;
         }
         else {
@@ -143,10 +149,20 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
             sprintf(buf, "Content-Length: %lld\r\n", (long long)statbuf.st_size);
             write(outFD, buf, strlen(buf));
             write(logFD, buf, strlen(buf)); 
-            //TODO: Fazer content-type com a syscall system
-            sprintf(buf, "Content-type: ALGO\r\n", 20);
+            //Roda o comando "file" para pegar content-type
+            strcpy(buf, "Content-Type: ");
             write(outFD, buf, strlen(buf));
             write(logFD, buf, strlen(buf));
+            sprintf(buf, "file -b %s", fullPath);
+            if((shellCmdBin = popen(buf, "r")) == NULL) {
+                issueError(500, outFD, logFD);
+                cleanupProcessRequest(outFD, logFD, resourceFD, req);
+                return;
+            }
+            fgets(buf, 1024, shellCmdBin);
+            write(outFD, buf, strlen(buf));
+            write(logFD, buf, strlen(buf));
+            pclose(shellCmdBin);
             if(!strcmp(request, "GET")) {
                 //Escreve recurso no arquivo se saída
                 write(outFD, "\r\n", 2);
@@ -156,7 +172,6 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
                 }
             }
         }         
-
     }
     //Implementa OPTIONS
     else if(!strcmp(request, "OPTIONS")) {
@@ -167,7 +182,7 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
             if(REQUEST_ALLOWED[i+1] != 0) strcat(buf, ", ");
             else strcat(buf,"\r\n");
         }
-        strcat(buf, "Content-Length: 0");
+        strcat(buf, "Content-Length: 0\r\n");
         write(outFD, buf, strlen(buf));
         write(logFD, buf, strlen(buf));
 
@@ -175,9 +190,7 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
     //Implementa TRACE
     else if(!strcmp(request, "TRACE")) {
         writeCommonHeadersToOutputAndLog(200, outFD, logFD);
-        strcpy(buf, "Content-Length: ");
-        sprintf(contentLength, "%d\r\n", strlen(req));
-        strcat(buf, contentLength);
+        sprintf(buf, "Content-Length: %d\r\n ", strlen(req));
         write(outFD, buf, strlen(buf));
         write(outFD, "\r\n", 2);
         write(logFD, buf, strlen(buf));
@@ -185,12 +198,17 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
     }
 
     write(logFD, LOG_SEPARATOR, strlen(LOG_SEPARATOR));
+    cleanupProcessRequest(outFD, logFD, resourceFD, req);
+    return;
+}
 
-    close(outFD);
-    close(logFD);
-    close(resourceFD);
-    free(req);
-
+void cleanupProcessRequest(int outFD, int logFD, int resourceFD, char* req) {
+    if(outFD != -1) close(outFD);
+    if(logFD != -1) close(logFD);
+    if(resourceFD != -1) close(resourceFD);
+    if(req != NULL) free(req);
+    cleanLists();
+    return;
 }
 
 //TODO: arrumar content type
@@ -208,11 +226,14 @@ void issueError(int errorCode, int outFD, int logFD) {
     write(logFD, buf, strlen(buf));
     write(outFD, "\r\n", 2);
     write(outFD, page, strlen(page));
+    write(logFD, LOG_SEPARATOR, strlen(LOG_SEPARATOR));
     free(page);
     return;
 }
 
-//Nao esquecer de dar free no ponteiro retornado!!!!!!
+/* Cria pagina HTML contendo o erro especificado 
+ * em errorCode e a retorna a string contendo a pagina.
+ * IMPORTANTE: Após utilizar a string, desalocar espaço */
 char* createHtmlErrorPage(int errorCode) {
     char title[64];
     char message[64];
@@ -246,7 +267,7 @@ char* createHtmlErrorPage(int errorCode) {
 
     
     pageSize = strlen(title) + strlen(message) + strlen(HTML_BODY1) + strlen(HTML_BODY2) + strlen(HTML_BODY3);
-    char* page = (char*)malloc(pageSize);
+    char* page = (char*)malloc(pageSize+1);
     strcpy(page, HTML_BODY1);
     strcat(page, title);
     strcat(page, HTML_BODY2);
@@ -256,11 +277,12 @@ char* createHtmlErrorPage(int errorCode) {
             
 }
 
+/* Escreve os headers comuns a todas as respostas nos arquivos
+ * dados por outFD e logFD. */
 void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD) {
     time_t rawtime;
     struct tm* timeinfo;
     char buf[1024];
-    int readSize;
 
     //Forma linhas em buf e as escreve nos arquivos
     strcpy(buf, HTTP_VERSION);
@@ -312,17 +334,13 @@ void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD) {
 }
 
 
-//Tenta buscar o recurso localizado no resourcePath do webSpace
-//Retorna FD no sucesso, -1 Forbidden, -2 Not found, -3 Internal Server Error
-int getResource(char* webspace, char* resourcePath) {
+/* Tenta buscar o recurso localizado no resourcePath do webSpace
+ * Retorna FD no sucesso, -1 Forbidden, -2 Not found, -3 Internal Server Error */
+int getResource(char* path) {
     int resourceFD;
-    char path[1024];
     char auxPath[1024];
-    int readSize;
     struct stat statbuf;
 
-    strcpy(path, webspace);
-    strcat(path, resourcePath);
 
     //Acessa o recurso com a chamada stat
     if (stat(path, &statbuf) == -1) {
@@ -371,11 +389,8 @@ int getResource(char* webspace, char* resourcePath) {
     }
 }
 
-/* Abre a request no arquivo especificado em path;
- * Aloca um buffer com o tamanho do arquivo de request;
- * Escreve no buffer todo o conteúdo da request;
- * Retorna o ponteiro para o espaço alocado com a request
- * IMPORTANTE: Após utilizar o buffer, desalocar espaço */
+/* Retorna uma string com o conteudo do arquivo especifico em path
+ * IMPORTANTE: Após utilizar a string, desalocar espaço */
 char* getRequestFromFile(char* path) {
     int r , i , j , sz ;
 	FILE * fin;
