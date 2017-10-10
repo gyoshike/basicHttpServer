@@ -3,12 +3,10 @@
  * Guilherme Augusto Sakai Yoshike */
 
 /* TODO:
- * -Escrever content-type correto em TRACE (ASCII TEXT) e nos erros (Pagina HTML)
- * -Lidar com o caso em que é pego content type do diretorio e nao do recurso
- * -Obter connection-type da request parseada
  * -Descobrir como colocar \r\n nas strings de tempo
- * -Capturar o erro de yyparse() para capturar bad request
- * -Detectar erros em opens, writes, etc para capturar internal server error */
+ * -Capturar o erro de yyparse() para capturar bad request (no momento dando segfault)
+ * -Detectar erros em opens, writes, etc para capturar internal server error
+ * -Organizar/estruturar codigo*/
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -30,6 +28,7 @@ char* createHtmlErrorPage(int errorCode);
 //Retorna uma string contendo a request no arquivo especificado em path
 char* getRequestFromFile(char* path);
 //Retorna o FD do recurso em path. Em caso de falha, retorna codigos de erro
+//Tambem escreve em path o caminho final para o recurso (importante se request for sobre diretorio)
 int getResource(char* path);
 //Realiza escritas comuns a todos os casos
 void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD); 
@@ -101,7 +100,7 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
     
 	//Puxa request e seu primeiro parametro 
 	getRequest(request);
-    getParam(resourcePath);
+    getRequestPath(resourcePath);
 
     //Forma o caminho completo para o recurso
     strcpy(fullPath, webspace);
@@ -190,7 +189,10 @@ void processRequest(char* webspace, char* inputPath, char* outputPath, char* log
     //Implementa TRACE
     else if(!strcmp(request, "TRACE")) {
         writeCommonHeadersToOutputAndLog(200, outFD, logFD);
-        sprintf(buf, "Content-Length: %d\r\n ", strlen(req));
+        sprintf(buf, "Content-Length: %d\r\n", strlen(req));
+        write(outFD, buf, strlen(buf));
+        write(logFD, buf, strlen(buf));
+        sprintf(buf, "Content-Type: ASCII text\r\n");
         write(outFD, buf, strlen(buf));
         write(outFD, "\r\n", 2);
         write(logFD, buf, strlen(buf));
@@ -211,14 +213,13 @@ void cleanupProcessRequest(int outFD, int logFD, int resourceFD, char* req) {
     return;
 }
 
-//TODO: arrumar content type
 void issueError(int errorCode, int outFD, int logFD) {
     char* page;
     char buf[1024];
 
     writeCommonHeadersToOutputAndLog(errorCode, outFD, logFD);
     page = createHtmlErrorPage(errorCode);          //Nao esquecer de dar free
-    sprintf(buf, "Content-type: HTML\r\n", 20);
+    sprintf(buf, "Content-type: HTML document\r\n", 20);
     write(outFD, buf, strlen(buf));
     write(logFD, buf, strlen(buf));
     sprintf(buf, "Content-Length: %d\r\n", strlen(page)); 
@@ -327,8 +328,11 @@ void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD) {
     write(outFD, buf, strlen(buf));
     write(logFD, buf, strlen(buf));
 
-    //TODO: Pegar tipo de conexao da request e usar a mesma
-    strcpy(buf, "Connection-Type: keep-alive\r\n");
+    strcpy(buf, "Connection:");
+    write(outFD, buf, strlen(buf));
+    write(logFD, buf, strlen(buf));
+    getParam(buf, "Connection", 1);
+    strcat(buf, "\r\n");
     write(outFD, buf, strlen(buf));
     write(logFD, buf, strlen(buf));
 }
@@ -381,11 +385,17 @@ int getResource(char* path) {
                     else if (errno == ENOENT) return -2;
                     else return -3;
                 }
-                else return resourceFD;
+                else {
+                    strcpy(path, auxPath);
+                    return resourceFD;
+                }
             }
             else return -3;
         }
-        else return resourceFD;
+        else {
+            strcpy(path, auxPath);
+            return resourceFD;
+        }        
     }
 }
 

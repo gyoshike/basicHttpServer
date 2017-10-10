@@ -10,7 +10,8 @@ typedef struct param_list{
 } param_list;
 
 void getRequest(char* dest);
-void getParam(char* dest);
+void getRequestPath(char* dest);
+void getParam(char* dest, char* cmdName, int paramNum);
 void add_command_list(char *command);
 void add_param_list_begin(char *param);
 void printRequestInListToFile(int fileFD);

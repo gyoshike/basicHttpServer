@@ -87,8 +87,32 @@ void getRequest(char* dest) {
 	strcpy(dest, list->command);
 }
 
-void getParam(char* dest) {
+void getRequestPath(char* dest) {
 	strcpy(dest, list->params->param);
+}
+
+//Retorna no char dest o parametro num. paramNum do comando cmdName
+//Escreve nulo caso o parametro desejado nao seja encontrado
+void getParam(char* dest, char* cmdName, int paramNum) {
+    command_list* current = list;
+    param_list* currentParam;
+    int i=1;
+    
+    while(current != NULL) {
+        if(!strcmp(current->command, cmdName)) {
+            currentParam = current->params;
+            while(currentParam != NULL) {
+                if(i == paramNum) {
+                    strcpy(dest, currentParam->param);
+                    return;
+                }
+                currentParam = currentParam->next;
+                i++;
+            }
+        }
+        current = current->next;
+    }
+    strcpy(dest, NULL);
 }
 
 
@@ -121,7 +145,6 @@ void printRequestInListToFile(int fileFD) {
             currentParam = currentParam->next;
         }
         current = current->next;
-
     }
     write(fileFD, "\r\n", 2);
     return;        
