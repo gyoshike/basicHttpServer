@@ -1,0 +1,19 @@
+GET /dir1/gatos HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:56.0) Gecko/20100101 Firefox/56.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Tue Oct 17 19:11:42 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+HTTP/1.1 400 Bad Request

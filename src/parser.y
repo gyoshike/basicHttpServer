@@ -23,6 +23,7 @@ linhas:   	    linha
 linha:		    requestLine
                 | COMENTARIO
                 | cmdLine
+                | NL
 requestLine:	REQUEST PARAMREQUEST PARAMREQUEST NL {add_command_list($1); add_param_list_begin($3); add_param_list_begin($2);}
 comando:	    CMD {add_command_list($1);}
 parametros:	    PARAMCMD parametros {add_param_list_begin($1);}

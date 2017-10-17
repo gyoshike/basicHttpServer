@@ -11,16 +11,21 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <sys/stat.h>
+#include <sys/types.h>
+#include <sys/socket.h>
 #include <fcntl.h>
 #include <string.h>
 #include <errno.h>
 #include <time.h>
 #include <unistd.h>
+#include <netinet/in.h>
 #include "lists.h"
 #include "y.tab.h"
 
+
+char* getRequestFromSocket(int socket);
 //Processa a request
-void processRequest(char* webspace, char* inputPath, char* outputPath, char* logPath);
+void processRequest(char* webspace, char* req, int outFD, char* logPath);
 void cleanupProcessRequest(int outFD, int logFD, int resourceFD, char* req);
 //Geram as saidas no caso de erro
 void issueError(int errorCode, int outFD, int logFD);
@@ -58,28 +63,50 @@ const char HTML_BODY2[] = "</title>\r\n\t</head>\r\n\t<body>\r\n\t\t<font size=\
 const char HTML_BODY3[] = "</font>\r\n\t</body>\r\n</html>\r\n";
 
 int main(int argc, char* argv[]) {
-    processRequest(argv[1], argv[2], argv[3], argv[4]);
+    int soquete, soquete_msg;
+    struct sockaddr_in servidor, cliente;
+    int tam_endereco = sizeof(cliente);
+    char msg_entrada[1024];
+    char* request;
+
+    soquete = socket(AF_INET, SOCK_STREAM, 0); // 0 indica “Use protocolo padrão”
+    servidor.sin_family = AF_INET;
+    servidor.sin_port = htons(9876); // htons() converte valores para representação de rede
+    servidor.sin_addr.s_addr = INADDR_ANY; // qualquer endereço válido
+    bind(soquete, (struct sockaddr*)&servidor, sizeof(servidor));
+    listen(soquete, 5); // prepara socket para recepção e lista para receber até 5 conexões
+    while (1) {
+    soquete_msg = accept(soquete, (struct sockaddr*)&cliente, &tam_endereco);
+    printf("Recebeu conexao\n");
+        //do {
+            request = getRequestFromSocket(soquete_msg);
+            printf("%s\n", request);
+            processRequest(argv[1], request, soquete_msg, argv[2]);
+            //write (soquete_msg, msg_entrada, strlen(msg_entrada)+1);
+        //} while (strcmp(msg_entrada,"fechar"));
+    close(soquete_msg);
+    }
+    
     return 0;
 }
 
 //Processa a request
-void processRequest(char* webspace, char* inputPath, char* outputPath, char* logPath) {
+void processRequest(char* webspace, char* req, int outFD, char* logPath) {
     char request[16];               //Nome da request
     char resourcePath[1024];        //Caminho para o recurso
     char fullPath[1024];            //Caminho completo para o recurso considerando o webspace
     char buf[1024];                 //Buffer de uso geral em escritas
-    int outFD = -1;                 //FD do arquivo de saída
+    //int outFD = -1;                 //FD do arquivo de saída
     int logFD = -1;                 //FD do arquivo de log
     int resourceFD = -1;            //FD do recurso solicitado
     struct stat statbuf;            //Struct de informacoes de um recurso
     FILE *shellCmdBin;              //Stream para executar comandos shell
     
     //Abre fd do log e da saida. 
-    outFD = open(outputPath, O_TRUNC|O_WRONLY|O_CREAT, 0600);
+    //outFD = open(outputPath, O_TRUNC|O_WRONLY|O_CREAT, 0600);
     logFD = open(logPath, O_APPEND|O_WRONLY|O_CREAT, 0600);
    
-    //Obtem buffer contendo a request do arquivo especificado em inputPath
-    char* req = getRequestFromFile(inputPath); //Nao esquecer de dar free apos uso
+    //Verifica se o buffer de request passado é nulo
     if(req == NULL) {
         issueError(500, outFD, logFD);
         cleanupProcessRequest(outFD, logFD, -1, req);
@@ -328,13 +355,16 @@ void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD) {
     write(outFD, buf, strlen(buf));
     write(logFD, buf, strlen(buf));
 
-    strcpy(buf, "Connection:");
-    write(outFD, buf, strlen(buf));
-    write(logFD, buf, strlen(buf));
-    getParam(buf, "Connection", 1);
-    strcat(buf, "\r\n");
-    write(outFD, buf, strlen(buf));
-    write(logFD, buf, strlen(buf));
+    //Caso seja bad request, nao tentar pegar connection do navegador
+   if(responseCode != 400) {
+        strcpy(buf, "Connection:");
+        write(outFD, buf, strlen(buf));
+        write(logFD, buf, strlen(buf));
+        getParam(buf, "Connection", 1);
+        strcat(buf, "\r\n");
+        write(outFD, buf, strlen(buf));
+        write(logFD, buf, strlen(buf));
+   }
 }
 
 
@@ -399,6 +429,17 @@ int getResource(char* path) {
     }
 }
 
+char* getRequestFromSocket(int socket) {
+    
+	char* req = (char*)malloc(4096*sizeof(char));
+	//char buffer[128];
+	
+	//Le os dados e escreve no buffer
+    read(socket, req, 4096);
+
+	return req;
+
+}
 /* Retorna uma string com o conteudo do arquivo especifico em path
  * IMPORTANTE: Após utilizar a string, desalocar espaço */
 char* getRequestFromFile(char* path) {
