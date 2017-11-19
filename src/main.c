@@ -34,7 +34,7 @@ void cleanupProcessRequest(int outFD, int logFD, int resourceFD, char* req);
 void issueError(int errorCode, int outFD, int logFD, SSL* ssl);
 char* createHtmlErrorPage(int errorCode);
 //Obtém uma request de um socket (getRequestFromSocket) ou de um arquivo (gerRequestFromFile)
-int getRequestFromSocket(char** req, int socket, int logFD, long int tolerancia);
+int getRequestFromSocket(char** req, int socket, long int tolerancia);
 char* getRequestFromFile(char* path);
 //Retorna o FD do recurso em path. Em caso de falha, retorna codigos de erro
 //Tambem escreve em path o caminho final para o recurso (importante se request for sobre diretorio)
@@ -57,7 +57,7 @@ SSL_CTX* sslGetContext();
 //Carrega certificados
 void sslGetCertificate(SSL_CTX* ctx, char* certificatePath, char* pKeyPath);
 //Obtem uma request de um socket com ssl habilitado
-char* sslGetRequestFromSocket (SSL* ssl);
+int sslGetRequestFromSocket (char** req, SSL* ssl);
 //Funcao de escrita segura, escreve com ssl caso esteja habilitado. Caso contrario escreve no socket.
 ssize_t safeWrite(int fd, SSL* ssl, const char* source, size_t byteCount);
 
@@ -91,15 +91,16 @@ int main(int argc, char* argv[]) {
     int soquete, soquete_msg;                   //Soquetes de comunicacao
     struct sockaddr_in servidor, cliente;       //Estrutura para manejar endereços de internet
     int tam_endereco = sizeof(cliente);         //Tamanho da estrutura sockaddr_in
-	char msg_connection[1024];                  //Parametro "connection" da request
+	char msg_connection[64];                  //Parametro "connection" da request
     char* request;                              //Buffer para armazenar request
     int pid, estado;                            //Variaveis gerenciamento de processo
-    //SSL* ssl;
+    SSL* ssl;
     SSL_CTX* ctx;
+    int bytesRead;
 
     //Estabelece tratamento de sinal dos processo filhos
     signal(SIGCHLD, handleChildSignal);
-
+                
     //Inicializacao do SSL
     sslInit();
     ctx = sslGetContext();
@@ -131,32 +132,43 @@ int main(int argc, char* argv[]) {
             if(pid == 0) {
 				while(1){
                     //Tenta comecar SSL
-                    //ssl = SSL_new(ctx);
-                    //SSL_set_fd(ssl, soquete_msg);
+                    ssl = SSL_new(ctx);
+                    SSL_set_fd(ssl, soquete_msg);
 
-                    //Caso seja um socket não seguro (HTTP normal)
-                    //if(SSL_accept(ssl) != 1) {
-                        // Aguarda request do socket por 10 segundos
-                        printf("Aguardando request do processo: %d\n", getpid());
-                        if(getRequestFromSocket(&request, soquete_msg, argv[2], atoi(argv[4])) > 0){
-                            printf("Processando request\n");
-                            processRequest(argv[1], request, soquete_msg, argv[2], NULL);
-                            getParam(msg_connection, "Connection", 1);
-                            cleanLists();
-                        } else {
-                            printf("Recebeu request vazia\n");
-                            close(soquete_msg);
-                            exit(0);
-                        }
-                        
-                        // Caso seja Connection: Close, encerra o processo filho e fecha o socket
-                        if (strcmp(msg_connection, " Close") == 0) {
-                            printf("Fechando conexao...\n");
-                            close(soquete_msg);
-                            sleep(100);
-                            exit(0);
-                        //}
+                    printf("Aguardando request do processo: %d\n", getpid());
+
+                    //Caso SSL esteja desabilitado
+                    if(SSL_accept(ssl) != 1) {
+                        printf("print1\n");
+                        ssl = NULL;
+                        int bytesRead = getRequestFromSocket(&request, soquete_msg, atoi(argv[4]));
                     }
+                    //Caso SSL esteja habilitado
+                    else {
+                        printf("print2\n");
+                        bytesRead = sslGetRequestFromSocket(&request, ssl);
+                    }
+                        
+                    //Processa request
+                    if(bytesRead > 0){
+                        printf("Processando request\n");
+                        processRequest(argv[1], request, soquete_msg, argv[2], ssl);
+                        getParam(msg_connection, "Connection", 1);
+                        cleanLists();
+                    } else {
+                        printf("Recebeu request vazia\n");
+                        close(soquete_msg);
+                        exit(0);
+                    }
+                    
+                    // Caso seja Connection: Close, encerra o processo filho e fecha o socket
+                    //if (strcmp(msg_connection, " Close") == 0) {
+                        printf("Fechando conexao...\n");
+                        SSL_free(ssl);
+                        close(soquete_msg);
+                        sleep(100);
+                        exit(0);
+                    //}
 				}
             }
         } else {
@@ -534,7 +546,7 @@ int getResource(char* path) {
 }
 
 /* Obtem uma request a partir de um socket */
-int getRequestFromSocket(char** req, int socket, int logFD, long int tolerancia) {
+int getRequestFromSocket(char** req, int socket, long int tolerancia) {
 	fd_set fds;             //Conjunto de file descriptors a serem monitorados pelo eelect
 	struct timeval timeout; //Tempo de timeout
 	int size;               //Tamanho da request recebida
@@ -636,7 +648,7 @@ void sslDestroyAndShutdown(SSL* ssl) {
 SSL_CTX* sslGetContext() {
     SSL_CTX* ctx;
     
-    ctx = SSL_CTX_new(TLS_server_method());
+    ctx = SSL_CTX_new(SSLv23_server_method());
     if(ctx == NULL) {
         printf("Erro ao inicializar estrutura de contexto necessaria para o SSL\n");
         exit(1);
@@ -668,10 +680,12 @@ void sslGetCertificate(SSL_CTX* ctx, char* certificatePath, char* pKeyPath) {
 }
 
 //Le uma request de um soquete com SSL habilitado
-char* sslGetRequestFromSocket(SSL* ssl) {
-	char* req = (char*)malloc(4096*sizeof(char));
-    SSL_read(ssl, req, 4096);
-	return req;
+int sslGetRequestFromSocket(char** req, SSL* ssl) {
+    int bytes;
+    *req = (char*)malloc(8192*sizeof(char));
+    bytes = SSL_read(ssl, *req, 4096);
+    printf("Request recebida:\n\n %s \n\n", *req);
+    return bytes;
 }
 
 //Caso ssl seja nulo, realiza escrito comum. Caso contrario escreve com SSL.
