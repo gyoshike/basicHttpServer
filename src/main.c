@@ -5,8 +5,6 @@
 /* TODO:
  * -Melhorar o manejamento do erro de bad request
  * -Detectar erros em opens, writes, etc para capturar internal server error
- *      ->No momento, pode acontecer escritas em um socket inválido, resultando em segfault (broken pipe)
- * -Realizar a escrita no socket (e talvez no log) fora da função processRequest de forma centralizada para evitar erro de broken pipe
  * -Organizar/estruturar codigo*/
 
 #include <stdio.h>
@@ -24,14 +22,16 @@
 #include <sys/wait.h>
 #include "lists.h"
 #include "y.tab.h"
+//Includes para utilizar OpenSSL
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
-//Multiprocessos
-void trataSinalFilho();
+/* Processamento de Request */
 //Processa a request
-void processRequest(char* webspace, char* req, int outFD, char* logPath);
+void processRequest(char* webspace, char* req, int outFD, char* logPath, SSL* ssl);
 void cleanupProcessRequest(int outFD, int logFD, int resourceFD, char* req);
 //Geram as saidas no caso de erro
-void issueError(int errorCode, int outFD, int logFD);
+void issueError(int errorCode, int outFD, int logFD, SSL* ssl);
 char* createHtmlErrorPage(int errorCode);
 //Obtém uma request de um socket (getRequestFromSocket) ou de um arquivo (gerRequestFromFile)
 int getRequestFromSocket(char** req, int socket, int logFD, long int tolerancia);
@@ -40,10 +40,27 @@ char* getRequestFromFile(char* path);
 //Tambem escreve em path o caminho final para o recurso (importante se request for sobre diretorio)
 int getResource(char* path);
 //Realiza escritas comuns a todos os casos
-void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD); 
+void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD, SSL* ssl); 
 //Verificam se a request solicitada foi implementada e é permitada
 int checkRequestImplemented(char* request);
 int checkRequestAllowed(char* request);
+
+/* Multiprocessos */
+void handleChildSignal();
+
+/* OpenSSL */
+//Inicializa e destroi SSL
+void sslInit();
+void sslDestroyAndShutdown();
+//Obtem contexto SSL (cofigura metodo, no caso utilizamos TLS)
+SSL_CTX* sslGetContext();
+//Carrega certificados
+void sslGetCertificate(SSL_CTX* ctx, char* certificatePath, char* pKeyPath);
+//Obtem uma request de um socket com ssl habilitado
+char* sslGetRequestFromSocket (SSL* ssl);
+//Funcao de escrita segura, escreve com ssl caso esteja habilitado. Caso contrario escreve no socket.
+ssize_t safeWrite(int fd, SSL* ssl, const char* source, size_t byteCount);
+
 
 //Requests implementadas e permitidas. 
 //OBS: DELETE marcada como implementada apenas para teste do erro Method Not Allowed
@@ -71,24 +88,30 @@ const int MAX_FILHOS = 5;
 int NUM_FILHOS = 0;
 
 int main(int argc, char* argv[]) {
-    int soquete, soquete_msg;
-    struct sockaddr_in servidor, cliente;
-    int tam_endereco = sizeof(cliente);
-    char msg_entrada[1024];
-	char msg_connection[1024];
-    char* request;
-    int pid, estado;               //Variaveis gerenciamento de processo
+    int soquete, soquete_msg;                   //Soquetes de comunicacao
+    struct sockaddr_in servidor, cliente;       //Estrutura para manejar endereços de internet
+    int tam_endereco = sizeof(cliente);         //Tamanho da estrutura sockaddr_in
+	char msg_connection[1024];                  //Parametro "connection" da request
+    char* request;                              //Buffer para armazenar request
+    int pid, estado;                            //Variaveis gerenciamento de processo
+    //SSL* ssl;
+    SSL_CTX* ctx;
 
     //Estabelece tratamento de sinal dos processo filhos
-    signal(SIGCHLD, trataSinalFilho);
+    signal(SIGCHLD, handleChildSignal);
+
+    //Inicializacao do SSL
+    sslInit();
+    ctx = sslGetContext();
+    sslGetCertificate(ctx, argv[5], argv[6]);
 
     //Abertura do socket
-    soquete = socket(AF_INET, SOCK_STREAM, 0); // 0 indica “Use protocolo padrão”
-    servidor.sin_family = AF_INET;
-    servidor.sin_port = htons(atoi(argv[3])); // htons() converte valores para representação de rede
-    servidor.sin_addr.s_addr = INADDR_ANY; // qualquer endereço válido
+    soquete = socket(AF_INET, SOCK_STREAM, 0);      // 0 indica “Use protocolo padrão”
+    servidor.sin_family = AF_INET;                  // Endereços IPv4
+    servidor.sin_port = htons(atoi(argv[3]));       // htons() converte valores para representação de rede
+    servidor.sin_addr.s_addr = INADDR_ANY;          // Qualquer endereço válido
     bind(soquete, (struct sockaddr*)&servidor, sizeof(servidor));
-    listen(soquete, 5); // prepara socket para recepção e lista para receber até 5 conexões
+    listen(soquete, 5);                             // Prepara socket para recepção,recebendo até 5 conexões
 	
 	
     //Loop do servidor
@@ -103,40 +126,42 @@ int main(int argc, char* argv[]) {
         if(NUM_FILHOS < MAX_FILHOS) {
             NUM_FILHOS++;
             pid = fork();
+
             //Caso seja processo filho
             if(pid == 0) {
 				while(1){
-					// Aguarda request do socket por 10 segundos
-					printf("aguardando request do processo: %d\n", getpid());
-					if(getRequestFromSocket(&request, soquete_msg, argv[2], atoi(argv[4])) > 0){
-						printf("processando request\n");
-						processRequest(argv[1], request, soquete_msg, argv[2]);
-						getParam(msg_connection, "Connection", 1);
-						cleanLists();
-					} else {
-						printf("Recebeu request vazia\n");
-                        close(soquete_msg);
-						exit(0);
-					}
-					
-					//printf("teste:\n%s\n\n\n", request);
-					// Pega valor de connection
-					//getParam(msg_connection, "Connection", 1);
-					//printf("conexao:%s\n", msg_connection);
-					//Processa a request, escrevendo no socket e no log as saídas.
-					
-					// Caso seja Connection: Close, encerra o processo filho e fecha o socket
-					if (strcmp(msg_connection, " Close") == 0) {
-						printf("Fechando conexao...\n");
-						close(soquete_msg);
-						sleep(100);
-						exit(0);
-					}
+                    //Tenta comecar SSL
+                    //ssl = SSL_new(ctx);
+                    //SSL_set_fd(ssl, soquete_msg);
+
+                    //Caso seja um socket não seguro (HTTP normal)
+                    //if(SSL_accept(ssl) != 1) {
+                        // Aguarda request do socket por 10 segundos
+                        printf("Aguardando request do processo: %d\n", getpid());
+                        if(getRequestFromSocket(&request, soquete_msg, argv[2], atoi(argv[4])) > 0){
+                            printf("Processando request\n");
+                            processRequest(argv[1], request, soquete_msg, argv[2], NULL);
+                            getParam(msg_connection, "Connection", 1);
+                            cleanLists();
+                        } else {
+                            printf("Recebeu request vazia\n");
+                            close(soquete_msg);
+                            exit(0);
+                        }
+                        
+                        // Caso seja Connection: Close, encerra o processo filho e fecha o socket
+                        if (strcmp(msg_connection, " Close") == 0) {
+                            printf("Fechando conexao...\n");
+                            close(soquete_msg);
+                            sleep(100);
+                            exit(0);
+                        //}
+                    }
 				}
             }
         } else {
             int logFD = open(argv[2], O_APPEND|O_WRONLY|O_CREAT, 0600);
-            issueError(500, soquete_msg, logFD);
+            issueError(500, soquete_msg, logFD, NULL);
             close(logFD);
         }
     }
@@ -145,36 +170,31 @@ int main(int argc, char* argv[]) {
     return 0;
 }
 
-void trataSinalFilho() {
+void handleChildSignal() {
     int estado;
-
     NUM_FILHOS--;
     wait3(&estado, WNOHANG, NULL);
 }
 
 //Processa a request
-void processRequest(char* webspace, char* req, int outFD, char* logPath) {
+void processRequest(char* webspace, char* req, int outFD, char* logPath, SSL* ssl) {
     char request[16];               //Nome da request
     char resourcePath[1024];        //Caminho para o recurso
     char fullPath[1024];            //Caminho completo para o recurso considerando o webspace
     char buf[1024];                 //Buffer de uso geral em escritas
-    //int outFD = -1;                 //FD do arquivo de saída
     int logFD = -1;                 //FD do arquivo de log
     int resourceFD = -1;            //FD do recurso solicitado
     struct stat statbuf;            //Struct de informacoes de um recurso
     FILE *shellCmdBin;              //Stream para executar comandos shell
 	int i;
-	char msg_connection[1024];
 	
-	//printf("request recebida:\n%s\n\n\nFIM\n", req);
     
-    //Abre fd do log e da saida. 
-    //outFD = open(outputPath, O_TRUNC|O_WRONLY|O_CREAT, 0600);
+    //Abre fd do log 
     logFD = open(logPath, O_APPEND|O_WRONLY|O_CREAT, 0600);
    
     //Verifica se o buffer de request passado é nulo
     if(req == NULL) {
-        issueError(500, outFD, logFD);
+        issueError(500, outFD, logFD, ssl);
         //cleanupProcessRequest(outFD, logFD, -1, req);
         return;
     }
@@ -183,7 +203,7 @@ void processRequest(char* webspace, char* req, int outFD, char* logPath) {
     //TODO: pegar erro yyparse e lidar com erro de BAD REQUEST (400)
  	yy_scan_string(req);
 	if(yyparse()) {
-	    issueError(400, outFD, logFD);
+	    issueError(400, outFD, logFD, ssl);
 	    //cleanupProcessRequest(outFD, logFD, -1, req);
 	    return;
 	}
@@ -202,12 +222,12 @@ void processRequest(char* webspace, char* req, int outFD, char* logPath) {
 
 	//Verifica se a request recebida esta implementada e é permitida
 	if(checkRequestImplemented(request)) {
-	    issueError(501, outFD, logFD);
+	    issueError(501, outFD, logFD, ssl);
         //cleanupProcessRequest(outFD, logFD, -1, req);
 	    return;
 	}
 	if(checkRequestAllowed(request)) {
-	    issueError(405, outFD, logFD);
+	    issueError(405, outFD, logFD, ssl);
         //cleanupProcessRequest(outFD, logFD, -1, req);
 	    return;
     }
@@ -219,57 +239,57 @@ void processRequest(char* webspace, char* req, int outFD, char* logPath) {
 
         resourceFD = getResource(fullPath);
         if(resourceFD == -1) {
-            issueError(403, outFD, logFD);
+            issueError(403, outFD, logFD, ssl);
             //cleanupProcessRequest(outFD, logFD, resourceFD, req);
             return;
         }
         else if(resourceFD == -2) {
-            issueError(404, outFD, logFD);
+            issueError(404, outFD, logFD, ssl);
             //cleanupProcessRequest(outFD, logFD, resourceFD, req);
             return;
         }
         else if(resourceFD == -3) {
-            issueError(500, outFD, logFD);
+            issueError(500, outFD, logFD, ssl);
             //cleanupProcessRequest(outFD, logFD, resourceFD, req);
             return;
         }
         else {
             //Escreve headers no arquivo de saída e de log
-            writeCommonHeadersToOutputAndLog(200, outFD, logFD);
+            writeCommonHeadersToOutputAndLog(200, outFD, logFD, ssl);
             fstat(resourceFD, &statbuf);
             sprintf(buf, "Last-Modified: %s", ctime(&statbuf.st_mtime));
-            write(outFD, buf, strlen(buf));
-            write(logFD, buf, strlen(buf));
+            safeWrite(outFD, ssl, buf, strlen(buf));
+            safeWrite(logFD, NULL, buf, strlen(buf));
             sprintf(buf, "Content-Length: %lld\r\n", (long long)statbuf.st_size);
-            write(outFD, buf, strlen(buf));
-            write(logFD, buf, strlen(buf)); 
+            safeWrite(outFD, ssl, buf, strlen(buf));
+            safeWrite(logFD, NULL, buf, strlen(buf)); 
             //Roda o comando "file" para pegar content-type
             strcpy(buf, "Content-Type: ");
-            write(outFD, buf, strlen(buf));
-            write(logFD, buf, strlen(buf));
+            safeWrite(outFD, ssl, buf, strlen(buf));
+            safeWrite(logFD, NULL, buf, strlen(buf));
             sprintf(buf, "file -b %s", fullPath);
             if((shellCmdBin = popen(buf, "r")) == NULL) {
-                issueError(500, outFD, logFD);
+                issueError(500, outFD, logFD, ssl);
                 //cleanupProcessRequest(outFD, logFD, resourceFD, req);
                 return;
             }
             fgets(buf, 1024, shellCmdBin);
-            write(outFD, buf, strlen(buf));
-            write(logFD, buf, strlen(buf));
+            safeWrite(outFD, ssl, buf, strlen(buf));
+            safeWrite(logFD, NULL, buf, strlen(buf));
             pclose(shellCmdBin);
             if(!strcmp(request, "GET")) {
                 //Escreve recurso no arquivo se saída
-                write(outFD, "\r\n", 2);
+                safeWrite(outFD, ssl, "\r\n", 2);
                 char byte;
                 while(read(resourceFD, &byte, 1) != 0) {
-                    write(outFD, &byte, 1);
+                    safeWrite(outFD, ssl,  &byte, 1);
                 }
             }
         }         
     }
     //Implementa OPTIONS
     else if(!strcmp(request, "OPTIONS")) {
-        writeCommonHeadersToOutputAndLog(200, outFD, logFD);
+        writeCommonHeadersToOutputAndLog(200, outFD, logFD, ssl);
         strcpy(buf, "Allow: ");
         for(i=0; REQUEST_ALLOWED[i] != 0; i++) {
             strcat(buf, REQUEST_ALLOWED[i]);
@@ -277,24 +297,24 @@ void processRequest(char* webspace, char* req, int outFD, char* logPath) {
             else strcat(buf,"\r\n");
         }
         strcat(buf, "Content-Length: 0\r\n");
-        write(outFD, buf, strlen(buf));
-        write(logFD, buf, strlen(buf));
+        safeWrite(outFD, ssl, buf, strlen(buf));
+        safeWrite(logFD, NULL, buf, strlen(buf));
 
     }
     //Implementa TRACE
     else if(!strcmp(request, "TRACE")) {
-        writeCommonHeadersToOutputAndLog(200, outFD, logFD);
+        writeCommonHeadersToOutputAndLog(200, outFD, logFD, ssl);
         sprintf(buf, "Content-Length: %d\r\n", strlen(req));
-        write(outFD, buf, strlen(buf));
-        write(logFD, buf, strlen(buf));
+        safeWrite(outFD, ssl, buf, strlen(buf));
+        safeWrite(logFD, NULL, buf, strlen(buf));
         sprintf(buf, "Content-Type: ASCII text\r\n");
-        write(outFD, buf, strlen(buf));
-        write(outFD, "\r\n", 2);
-        write(logFD, buf, strlen(buf));
+        safeWrite(outFD, ssl, buf, strlen(buf));
+        safeWrite(outFD, ssl, "\r\n", 2);
+        safeWrite(logFD, NULL, buf, strlen(buf));
         printRequestInListToFile(outFD);
     }
 
-    write(logFD, LOG_SEPARATOR, strlen(LOG_SEPARATOR));
+    safeWrite(logFD, NULL, LOG_SEPARATOR, strlen(LOG_SEPARATOR));
 	
     //cleanupProcessRequest(outFD, logFD, resourceFD, req);
     return;
@@ -311,29 +331,27 @@ void cleanupProcessRequest(int outFD, int logFD, int resourceFD, char* req) {
 
 void cleanupSocketMessage(int socket, char* req) {
     if(socket != -1) close(socket);
-    //if(logFD != -1) close(logFD);
-    //if(resourceFD != -1) close(resourceFD);
     if(req != NULL) free(req);
     cleanLists();
     return;
 }
 
-void issueError(int errorCode, int outFD, int logFD) {
+void issueError(int errorCode, int outFD, int logFD, SSL* ssl) {
     char* page;
     char buf[1024];
 
-    writeCommonHeadersToOutputAndLog(errorCode, outFD, logFD);
+    writeCommonHeadersToOutputAndLog(errorCode, outFD, logFD, ssl);
     //Coloca no ponteiro page espaço alocado com a pagina HTML. Liberar memória após uso!
     page = createHtmlErrorPage(errorCode);        
     sprintf(buf, "Content-type: HTML document\r\n", 20);
-    write(outFD, buf, strlen(buf));
-    write(logFD, buf, strlen(buf));
+    safeWrite(outFD, ssl, buf, strlen(buf));
+    safeWrite(logFD, NULL, buf, strlen(buf));
     sprintf(buf, "Content-Length: %d\r\n", strlen(page)); 
-    write(outFD, buf, strlen(buf));
-    write(logFD, buf, strlen(buf));
-    write(outFD, "\r\n", 2);
-    write(outFD, page, strlen(page));
-    write(logFD, LOG_SEPARATOR, strlen(LOG_SEPARATOR));
+    safeWrite(outFD, ssl, buf, strlen(buf));
+    safeWrite(logFD, NULL, buf, strlen(buf));
+    safeWrite(outFD, ssl, "\r\n", 2);
+    safeWrite(outFD, ssl, page, strlen(page));
+    safeWrite(logFD, NULL, LOG_SEPARATOR, strlen(LOG_SEPARATOR));
     free(page);
     return;
 }
@@ -390,7 +408,7 @@ char* createHtmlErrorPage(int errorCode) {
 
 /* Escreve os headers comuns a todas as respostas nos arquivos
  * dados por outFD e logFD. */
-void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD) {
+void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD, SSL* ssl) {
     time_t rawtime;
     struct tm* timeinfo;
     char buf[1024];
@@ -425,31 +443,31 @@ void writeCommonHeadersToOutputAndLog(int responseCode, int outFD, int logFD) {
         break;
     }
     strcat(buf, "\r\n");
-    write(outFD, buf, strlen(buf));
-    write(logFD, buf, strlen(buf));
+    safeWrite(outFD, ssl, buf, strlen(buf));
+    safeWrite(logFD, NULL, buf, strlen(buf));
 
     strcpy(buf, "Date: ");
     time(&rawtime);
     timeinfo = localtime(&rawtime);
     strcat(buf, asctime(timeinfo));
-    write(outFD, buf, strlen(buf));
-    write(logFD, buf, strlen(buf));
+    safeWrite(outFD, ssl, buf, strlen(buf));
+    safeWrite(logFD, NULL, buf, strlen(buf));
  
     strcpy(buf, "Server: ");
     strcat(buf, SERVER_INFO);
     strcat(buf, "\r\n");
-    write(outFD, buf, strlen(buf));
-    write(logFD, buf, strlen(buf));
+    safeWrite(outFD, ssl, buf, strlen(buf));
+    safeWrite(logFD, NULL, buf, strlen(buf));
 
     //Caso seja bad request ou timeout, nao tentar pegar connection do navegador
    if(responseCode != 400 && responseCode != 500 && responseCode != 503) {
         strcpy(buf, "Connection:");
-        write(outFD, buf, strlen(buf));
-        write(logFD, buf, strlen(buf));
+        safeWrite(outFD, ssl, buf, strlen(buf));
+        safeWrite(logFD, NULL, buf, strlen(buf));
         getParam(buf, "Connection", 1);
         strcat(buf, "\r\n");
-        write(outFD, buf, strlen(buf));
-        write(logFD, buf, strlen(buf));	   
+        safeWrite(outFD, ssl, buf, strlen(buf));
+        safeWrite(logFD, NULL, buf, strlen(buf));	   
    }
 }
 
@@ -515,28 +533,29 @@ int getResource(char* path) {
     }
 }
 
+/* Obtem uma request a partir de um socket */
 int getRequestFromSocket(char** req, int socket, int logFD, long int tolerancia) {
-	int n, c;
-	fd_set fds;
-	struct timeval timeout;
-	int size;
+	fd_set fds;             //Conjunto de file descriptors a serem monitorados pelo eelect
+	struct timeval timeout; //Tempo de timeout
+	int size;               //Tamanho da request recebida
+	int selectRet;          //Retorno do select
     
 	size = -1;
 	(*req) = (char*)malloc(4096*sizeof(char));
-	//char buffer[128];
 	
-	FD_ZERO(&fds); 					/*Limpa o set fds que será utilizado na chamada select*/
-	FD_SET(socket, &fds); 			/*Atribui o socket*/
-	timeout.tv_sec = tolerancia; 	/* Atribui para a variável timeout o valor de 5 segundos*/
-	timeout.tv_usec = 0;			/* Atribui para a variável timeout o valor de 0 microsegundos*/
+	FD_ZERO(&fds); 					//Limpa o set fds que será utilizado na chamada select
+	FD_SET(socket, &fds); 			//Atribui o socket
+	timeout.tv_sec = tolerancia; 	//Atribui para a variável timeout o valor de 5 segundos
+	timeout.tv_usec = 0;			//Atribui para a variável timeout o valor de 0 microsegundos
 	
-	n = select(socket+1, &fds, (fd_set *)0, (fd_set *)0, &timeout);
+	selectRet = select(socket+1, &fds, (fd_set *)0, (fd_set *)0, &timeout);
 	
 	
-	if(n > 0 && FD_ISSET(socket, &fds)) {
+	if(selectRet > 0 && FD_ISSET(socket, &fds)) {
 		//Le os dados e escreve no buffer
     	size = read(socket, (*req), 4096);
-	} else if(n == 0) {
+    	printf("Request lida:\n\n%s\n\n", *req);
+	} else if(selectRet == 0) {
 		printf("Sem requisicao em %ld s.\n", tolerancia);
 		cleanupSocketMessage(socket, (*req));
 		exit(1);
@@ -548,6 +567,7 @@ int getRequestFromSocket(char** req, int socket, int logFD, long int tolerancia)
 	return size;
 
 }
+
 /* Retorna uma string com o conteudo do arquivo especifico em path
  * IMPORTANTE: Após utilizar a string, desalocar espaço */
 char* getRequestFromFile(char* path) {
@@ -593,3 +613,79 @@ int checkRequestAllowed(char* request) {
     }
     return 1;
 }
+
+
+/* Funcoes para uso do SSL */
+
+//Inicializa SSL
+void sslInit() {
+    SSL_load_error_strings();
+    SSL_library_init();
+    OpenSSL_add_all_algorithms();
+}
+
+//Finaliza e desliga SSL
+void sslDestroyAndShutdown(SSL* ssl) {
+    ERR_free_strings();
+    EVP_cleanup();
+    SSL_shutdown(ssl);
+    SSL_free(ssl);
+}
+
+//Obtem contexto SSL
+SSL_CTX* sslGetContext() {
+    SSL_CTX* ctx;
+    
+    ctx = SSL_CTX_new(TLS_server_method());
+    if(ctx == NULL) {
+        printf("Erro ao inicializar estrutura de contexto necessaria para o SSL\n");
+        exit(1);
+    }
+    return ctx;
+}
+
+//Carrega certificado e chave privada dos caminhos certifiCatePath e pKeyPath no contexto ctx
+void sslGetCertificate(SSL_CTX* ctx, char* certificatePath, char* pKeyPath) {
+
+    printf("%s \n %s\n", certificatePath, pKeyPath);
+    //Carrega certificado do arquivo em certificatePath
+    if(SSL_CTX_use_certificate_file(ctx, certificatePath, SSL_FILETYPE_PEM) <= 0) {
+        printf("Erro ao carregar arquivo de certificado\n");
+        exit(1);
+    }
+
+    //Carrega chave privada do arquivo em pKeyPath
+    if(SSL_CTX_use_RSAPrivateKey_file(ctx, pKeyPath, SSL_FILETYPE_PEM) <= 0) {
+        printf("Erro ao carregar arquivo de chave privada\n");
+        exit(1);
+    }
+
+    //Verifica se chave privada bate com certificado
+    if(!SSL_CTX_check_private_key(ctx)) {
+        printf("Chave privada nao bate com certificado\n");
+        exit(1);
+    }
+}
+
+//Le uma request de um soquete com SSL habilitado
+char* sslGetRequestFromSocket(SSL* ssl) {
+	char* req = (char*)malloc(4096*sizeof(char));
+    SSL_read(ssl, req, 4096);
+	return req;
+}
+
+//Caso ssl seja nulo, realiza escrito comum. Caso contrario escreve com SSL.
+ssize_t safeWrite(int fd, SSL* ssl, const char* source, size_t byteCount) {
+    ssize_t writtenBytes;
+    //Caso ssl seja nulo, realiza write comum
+    if(ssl == NULL) {
+        writtenBytes = write(fd, source, byteCount);
+    } else {
+        writtenBytes = SSL_write(ssl, source, byteCount);
+    }
+    return writtenBytes;
+}
+        
+
+
+
