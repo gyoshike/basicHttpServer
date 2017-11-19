@@ -57,7 +57,7 @@ SSL_CTX* sslGetContext();
 //Carrega certificados
 void sslGetCertificate(SSL_CTX* ctx, char* certificatePath, char* pKeyPath);
 //Obtem uma request de um socket com ssl habilitado
-int sslGetRequestFromSocket (char** req, SSL* ssl);
+int sslGetRequestFromSocket (char** req, SSL* ssl, int socket, long int tolerancia);
 //Funcao de escrita segura, escreve com ssl caso esteja habilitado. Caso contrario escreve no socket.
 ssize_t safeWrite(int fd, SSL* ssl, const char* source, size_t byteCount);
 
@@ -91,12 +91,12 @@ int main(int argc, char* argv[]) {
     int soquete, soquete_msg;                   //Soquetes de comunicacao
     struct sockaddr_in servidor, cliente;       //Estrutura para manejar endereços de internet
     int tam_endereco = sizeof(cliente);         //Tamanho da estrutura sockaddr_in
-	char msg_connection[64];                  //Parametro "connection" da request
+	char msg_connection[64];                    //Parametro "connection" da request
     char* request;                              //Buffer para armazenar request
+    int bytesRead;                              //Tamanho da request
     int pid, estado;                            //Variaveis gerenciamento de processo
     SSL* ssl;
     SSL_CTX* ctx;
-    int bytesRead;
 
     //Estabelece tratamento de sinal dos processo filhos
     signal(SIGCHLD, handleChildSignal);
@@ -130,10 +130,10 @@ int main(int argc, char* argv[]) {
 
             //Caso seja processo filho
             if(pid == 0) {
+                //Inicializa SSL
+                ssl = SSL_new(ctx);
+                SSL_set_fd(ssl, soquete_msg);
 				while(1){
-                    //Tenta comecar SSL
-                    ssl = SSL_new(ctx);
-                    SSL_set_fd(ssl, soquete_msg);
 
                     printf("Aguardando request do processo: %d\n", getpid());
 
@@ -146,7 +146,7 @@ int main(int argc, char* argv[]) {
                     //Caso SSL esteja habilitado
                     else {
                         printf("print2\n");
-                        bytesRead = sslGetRequestFromSocket(&request, ssl);
+                        bytesRead = sslGetRequestFromSocket(&request, ssl, soquete_msg, atoi(argv[4]));
                     }
                         
                     //Processa request
@@ -162,13 +162,12 @@ int main(int argc, char* argv[]) {
                     }
                     
                     // Caso seja Connection: Close, encerra o processo filho e fecha o socket
-                    //if (strcmp(msg_connection, " Close") == 0) {
+                    if (strcmp(msg_connection, " Close") == 0) {
                         printf("Fechando conexao...\n");
-                        SSL_free(ssl);
                         close(soquete_msg);
                         sleep(100);
                         exit(0);
-                    //}
+                    }
 				}
             }
         } else {
@@ -680,12 +679,46 @@ void sslGetCertificate(SSL_CTX* ctx, char* certificatePath, char* pKeyPath) {
 }
 
 //Le uma request de um soquete com SSL habilitado
-int sslGetRequestFromSocket(char** req, SSL* ssl) {
-    int bytes;
-    *req = (char*)malloc(8192*sizeof(char));
-    bytes = SSL_read(ssl, *req, 4096);
-    printf("Request recebida:\n\n %s \n\n", *req);
-    return bytes;
+int sslGetRequestFromSocket(char** req, SSL* ssl, int socket, long int tolerancia) {
+	fd_set fds;             //Conjunto de file descriptors a serem monitorados pelo eelect
+	struct timeval timeout; //Tempo de timeout
+	int size = -1;          //Tamanho da request recebida
+	int selectRet;          //Retorno do select
+    
+    //Aloca espaço para requisicao
+	(*req) = (char*)malloc(8192*sizeof(char));
+	
+	//Configura variaveis para o select
+	FD_ZERO(&fds); 					//Limpa o set fds que será utilizado na chamada select
+	FD_SET(socket, &fds); 			//Atribui o socket
+	timeout.tv_sec = tolerancia; 	//Atribui para a variável timeout o valor de 5 segundos
+	timeout.tv_usec = 0;			//Atribui para a variável timeout o valor de 0 microsegundos
+	
+	selectRet = select(socket+1, &fds, (fd_set *)0, (fd_set *)0, &timeout);
+	
+	//Caso haja atividade no socket
+	if(selectRet > 0 && FD_ISSET(socket, &fds)) {
+	    
+	    //Aguarda o SSL nao estar pendente para fazer leitura correta
+	    while(SSL_pending(ssl));
+
+    	size = SSL_read(ssl, (*req), 8096);
+    	printf("Request lida:\n\n%s\n\n", *req);
+	} 
+	//Caso de timeout
+	else if(selectRet == 0) {
+		printf("Sem requisicao em %ld s.\n", tolerancia);
+		cleanupSocketMessage(socket, (*req));
+		exit(1);
+	} 
+	//Caso ocorra erro no select
+	else { 
+		perror("Erro em select():");
+		exit(1);
+	}
+
+	return size;
+
 }
 
 //Caso ssl seja nulo, realiza escrito comum. Caso contrario escreve com SSL.

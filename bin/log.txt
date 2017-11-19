@@ -255,3 +255,369 @@ Content-Type: HTML document, UTF-8 Unicode text, with CRLF line terminators
 
 ----------------------------------------
 
+GET / HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 200 OK
+Date: Sun Nov 19 21:13:35 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Last-Modified: Fri Nov 17 21:52:36 2017
+Content-Length: 173
+Content-Type: HTML document, UTF-8 Unicode text, with CRLF line terminators
+
+----------------------------------------
+
+GET /dir3 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:13:43 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir5 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:13:55 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+HTTP/1.1 400 Bad Request
+Date: Sun Nov 19 21:20:56 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Content-type: HTML document
+Content-Length: 148
+
+----------------------------------------
+
+HTTP/1.1 400 Bad Request
+Date: Sun Nov 19 21:21:06 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Content-type: HTML document
+Content-Length: 148
+
+----------------------------------------
+
+GET /dir3 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:21:34 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir3123 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:22:08 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir1/gatos.jpg HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 200 OK
+Date: Sun Nov 19 21:23:17 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Last-Modified: Fri Nov 17 21:52:36 2017
+Content-Length: 330381
+Content-Type: JPEG image data, JFIF standard 1.01, resolution (DPI), density 300x300, segment length 16, baseline, precision 8, 1254x705, frames 3
+
+----------------------------------------
+
+HTTP/1.1 400 Bad Request
+Date: Sun Nov 19 21:27:53 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Content-type: HTML document
+Content-Length: 148
+
+----------------------------------------
+
+GET /dir1/arquivo HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:28:19 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir1/arquivo2 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:29:22 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir1/arquivo3 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:43:20 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir1/arquivo5 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:43:27 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir1/arquivo512 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:44:27 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+HTTP/1.1 400 Bad Request
+Date: Sun Nov 19 21:44:32 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Content-type: HTML document
+Content-Length: 148
+
+----------------------------------------
+
+GET /dir1/arquivo5123 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:45:20 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+HTTP/1.1 400 Bad Request
+Date: Sun Nov 19 21:45:21 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Content-type: HTML document
+Content-Length: 148
+
+----------------------------------------
+
+GET /dir1/arquivo512322 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:46:05 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir1/arquivo5123221 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:46:06 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir1/arquivo51232214978358 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:46:07 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir1/arquivo512322141978358 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:58:32 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir1/arquivo5123221419783586 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:58:33 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
+GET /dir1/arquivo51232214197835863587 HTTP/1.1
+Host: localhost:9876
+User-Agent: Mozilla/5.0 (X11; Linux x86_64; rv:58.0) Gecko/20100101 Firefox/58.0
+Accept: text/html,application/xhtml+xml,application/xml;q=0.9, text/html
+Accept-Language: en-US, en-US
+Accept-Encoding: gzip, deflate, gzip
+Connection: keep-alive
+Upgrade-Insecure-Requests: 1
+
+HTTP/1.1 404 Not Found
+Date: Sun Nov 19 21:58:34 2017
+Server: Servidor HTTP ver. 0.1 de Guilherme Yoshike e Dener Stassun
+Connection: keep-alive
+Content-type: HTML document
+Content-Length: 144
+
+----------------------------------------
+
